@@ -1,10 +1,42 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Calendar, Mail, Phone, Award, Download, Sparkles } from 'lucide-react';
-import { useLocalStorage } from '../hooks/useLocalStorage';
-import { Winner } from '../types';
+import { Trophy, Calendar, Briefcase, User, Award, Download, Sparkles, Ticket } from 'lucide-react';
+import { ContestData, DrawResult } from '../types';
 
 export function Winners() {
-  const [winners] = useLocalStorage<Winner[]>('winners', []);
+  const [contestants, setContestants] = useState<ContestData | null>(null);
+  const [drawResults, setDrawResults] = useState<DrawResult[]>([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const response = await fetch('/contest-data.json');
+      const data: ContestData = await response.json();
+      setContestants(data);
+
+      const storedResults = localStorage.getItem('wheels_draw_results');
+      if (storedResults) {
+        setDrawResults(JSON.parse(storedResults));
+      }
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    }
+  };
+
+  const completedWinners = drawResults.filter(d => d.status === 'completed');
+
+  const winners = completedWinners.map(draw => {
+    const contestant = contestants?.contestants.find(c => c.id === draw.winner_id);
+    return {
+      ...draw,
+      name: draw.winner_name || '',
+      department: contestant?.department || '',
+      supervisor: contestant?.supervisor || '',
+    };
+  });
 
   const exportWinners = () => {
     const dataStr = JSON.stringify(winners, null, 2);
@@ -64,11 +96,11 @@ export function Winners() {
                           <h3 className="text-xl font-bold text-white">{winner.name}</h3>
                           <div className="flex items-center gap-1 text-xs text-gray-400">
                             <Calendar className="w-3 h-3" />
-                            {new Date(winner.wonAt).toLocaleDateString('en-US', {
+                            {winner.drawn_at ? new Date(winner.drawn_at).toLocaleDateString('en-US', {
                               month: 'short',
                               day: 'numeric',
                               year: 'numeric',
-                            })}
+                            }) : ''}
                           </div>
                         </div>
                       </div>
@@ -91,18 +123,26 @@ export function Winners() {
 
                     <div className="space-y-3">
                       <div className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg">
-                        <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <Briefcase className="w-4 h-4 text-gray-400 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-gray-400 text-xs mb-0.5">Email</p>
-                          <p className="text-white text-sm truncate">{winner.email}</p>
+                          <p className="text-gray-400 text-xs mb-0.5">Department</p>
+                          <p className="text-white text-sm">{winner.department}</p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg">
-                        <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <User className="w-4 h-4 text-gray-400 flex-shrink-0" />
                         <div className="flex-1">
-                          <p className="text-gray-400 text-xs mb-0.5">Phone</p>
-                          <p className="text-white text-sm">{winner.phone}</p>
+                          <p className="text-gray-400 text-xs mb-0.5">Supervisor</p>
+                          <p className="text-white text-sm">{winner.supervisor}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 p-3 bg-gray-800/30 rounded-lg">
+                        <Ticket className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-gray-400 text-xs mb-0.5">Winning Ticket</p>
+                          <p className="text-cyan-400 text-sm font-semibold">#{winner.winning_ticket}</p>
                         </div>
                       </div>
                     </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles, Trophy, AlertCircle, RefreshCw, Bike } from 'lucide-react';
+import { Sparkles, Trophy, AlertCircle, RefreshCw, Play } from 'lucide-react';
 import { Contestant, ContestData, DrawResult, Winner } from '../types';
 import { loadContestData, executeLocalDraw, getLocalDrawResults, saveDrawResults } from '../services/drawEngine';
 
@@ -12,7 +12,7 @@ export function DrawArena() {
   const [selectedWinner, setSelectedWinner] = useState<Winner | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [error, setError] = useState('');
-  const [currentDrawNumber, setCurrentDrawNumber] = useState(0);
+  const [selectedDrawNumber, setSelectedDrawNumber] = useState<number | null>(null);
 
   const vehicleImages: Record<string, string> = {
     'Pulsar NS 125': 'https://images.pexels.com/photos/3945683/pexels-photo-3945683.jpeg?auto=compress&cs=tinysrgb&w=600',
@@ -50,10 +50,22 @@ export function DrawArena() {
   };
 
   const completedDraws = drawResults.filter(d => d.status === 'completed').length;
-  const canDraw = completedDraws < 3 && !isSpinning;
+
+  const handleDrawClick = (drawNumber: number) => {
+    const drawResult = drawResults.find(d => d.draw_number === drawNumber);
+    if (drawResult && drawResult.status === 'completed') {
+      return;
+    }
+    setSelectedDrawNumber(drawNumber);
+  };
 
   const handleDraw = async () => {
-    if (!canDraw || !contestData) return;
+    if (!contestData || selectedDrawNumber === null || isSpinning) return;
+
+    const drawResult = drawResults.find(d => d.draw_number === selectedDrawNumber);
+    if (drawResult && drawResult.status === 'completed') {
+      return;
+    }
 
     setIsSpinning(true);
     setShowResult(false);
@@ -61,18 +73,15 @@ export function DrawArena() {
     setError('');
 
     try {
-      const drawNumber = completedDraws + 1;
-      setCurrentDrawNumber(drawNumber);
-
       await new Promise(resolve => setTimeout(resolve, 3000));
 
       const { ticketNumber, contestant } = executeLocalDraw(
-        drawNumber,
+        selectedDrawNumber,
         contestData.contestants,
         drawResults
       );
 
-      const drawDef = contestData.draws.find(d => d.drawNumber === drawNumber);
+      const drawDef = contestData.draws.find(d => d.drawNumber === selectedDrawNumber);
       const newWinner: Winner = {
         id: contestant.id,
         name: contestant.name,
@@ -84,8 +93,8 @@ export function DrawArena() {
       };
 
       const newDrawResult: DrawResult = {
-        id: `draw-${drawNumber}`,
-        draw_number: drawNumber,
+        id: `draw-${selectedDrawNumber}`,
+        draw_number: selectedDrawNumber,
         prize: drawDef?.prize || '',
         winning_ticket: ticketNumber,
         winner_id: contestant.id,
@@ -95,7 +104,14 @@ export function DrawArena() {
         created_at: new Date().toISOString(),
       };
 
-      const updatedResults = [...drawResults, newDrawResult];
+      const updatedResults = drawResults.map(r =>
+        r.draw_number === selectedDrawNumber ? newDrawResult : r
+      );
+
+      if (!drawResults.find(r => r.draw_number === selectedDrawNumber)) {
+        updatedResults.push(newDrawResult);
+      }
+
       saveDrawResults(updatedResults);
       setDrawResults(updatedResults);
 
@@ -112,6 +128,7 @@ export function DrawArena() {
   const resetDraw = () => {
     setShowResult(false);
     setSelectedWinner(null);
+    setSelectedDrawNumber(null);
   };
 
   if (!contestData) {
@@ -124,7 +141,18 @@ export function DrawArena() {
     );
   }
 
-  const currentPrize = drawResults[completedDraws]?.prize || '';
+  const allDraws = contestData.draws.map(draw => {
+    const result = drawResults.find(r => r.draw_number === draw.drawNumber);
+    return {
+      ...draw,
+      status: result?.status || 'pending',
+      winning_ticket: result?.winning_ticket || null,
+      winner_name: result?.winner_name || null,
+    };
+  });
+
+  const selectedDraw = selectedDrawNumber ? allDraws.find(d => d.drawNumber === selectedDrawNumber) : null;
+  const canStartDraw = selectedDrawNumber !== null && !isSpinning && selectedDraw?.status !== 'completed';
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -134,41 +162,53 @@ export function DrawArena() {
         transition={{ duration: 0.5 }}
       >
         <h2 className="text-3xl font-bold text-white mb-2">Draw Arena</h2>
-        <p className="text-gray-400 mb-8">3 draws, 2 Pulsar NS 125s, 1 TVS Jupiter</p>
+        <p className="text-gray-400 mb-8">Select a draw to start, 2 Pulsar NS 125s, 1 TVS Jupiter</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-          {drawResults.map(draw => (
+          {allDraws.map(draw => (
             <motion.div
-              key={draw.draw_number}
+              key={draw.drawNumber}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="relative"
+              whileHover={draw.status !== 'completed' ? { scale: 1.02 } : {}}
+              onClick={() => handleDrawClick(draw.drawNumber)}
+              className={`relative cursor-pointer ${
+                draw.status === 'completed' ? 'opacity-75 cursor-default' : ''
+              } ${
+                selectedDrawNumber === draw.drawNumber && draw.status !== 'completed'
+                  ? 'ring-2 ring-cyan-500'
+                  : ''
+              }`}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 blur-3xl"></div>
               <div className="relative bg-gray-900/50 backdrop-blur-xl p-6 rounded-2xl border border-gray-700/50">
                 <div className="text-center mb-4">
-                  <h3 className="text-xl font-bold text-white mb-2">Draw {draw.draw_number}</h3>
+                  <h3 className="text-xl font-bold text-white mb-2">Draw {draw.drawNumber}</h3>
                   <span className={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${
                     draw.status === 'completed'
                       ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                      : selectedDrawNumber === draw.drawNumber
+                      ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30'
                       : 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
                   }`}>
-                    {draw.status === 'completed' ? 'Completed' : 'Pending'}
+                    {draw.status === 'completed' ? 'Completed' : selectedDrawNumber === draw.drawNumber ? 'Selected' : 'Pending'}
                   </span>
                 </div>
 
+                <img
+                  src={vehicleImages[draw.prize]}
+                  alt={draw.prize}
+                  className="w-full h-40 object-cover rounded-lg mb-3"
+                />
+
+                <div className="p-3 bg-gray-800/50 rounded-lg mb-3">
+                  <p className="text-gray-400 text-xs mb-1">Prize</p>
+                  <p className="text-cyan-400 font-bold">{draw.prize}</p>
+                </div>
+
                 {draw.status === 'completed' && draw.winning_ticket ? (
-                  <div className="space-y-3">
-                    <img
-                      src={vehicleImages[draw.prize]}
-                      alt={draw.prize}
-                      className="w-full h-40 object-cover rounded-lg mb-3"
-                    />
-                    <div className="p-3 bg-gray-800/50 rounded-lg">
-                      <p className="text-gray-400 text-xs mb-1">Prize</p>
-                      <p className="text-cyan-400 font-bold">{draw.prize}</p>
-                    </div>
-                    <div className="p-3 bg-gray-800/50 rounded-lg">
+                  <>
+                    <div className="p-3 bg-gray-800/50 rounded-lg mb-3">
                       <p className="text-gray-400 text-xs mb-1">Winning Ticket</p>
                       <p className="text-white font-bold">#{draw.winning_ticket}</p>
                     </div>
@@ -176,10 +216,11 @@ export function DrawArena() {
                       <p className="text-gray-400 text-xs mb-1">Winner</p>
                       <p className="text-blue-400 font-bold">{draw.winner_name}</p>
                     </div>
-                  </div>
+                  </>
                 ) : (
-                  <div className="h-40 flex items-center justify-center">
-                    <Sparkles className="w-8 h-8 text-gray-600" />
+                  <div className="flex items-center justify-center p-3 bg-cyan-500/10 rounded-lg border border-cyan-500/30">
+                    <Play className="w-4 h-4 text-cyan-400 mr-2" />
+                    <p className="text-cyan-400 text-sm font-medium">Click to select</p>
                   </div>
                 )}
               </div>
@@ -231,10 +272,16 @@ export function DrawArena() {
               </div>
 
               <div className="text-center mb-6">
-                <p className="text-gray-400 text-sm mb-2">Draw {completedDraws + 1}</p>
-                <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
-                  {currentPrize || 'All prizes awarded!'}
-                </h3>
+                {selectedDrawNumber ? (
+                  <>
+                    <p className="text-gray-400 text-sm mb-2">Draw {selectedDrawNumber}</p>
+                    <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">
+                      {selectedDraw?.prize}
+                    </h3>
+                  </>
+                ) : (
+                  <p className="text-gray-400">Select a draw above to start</p>
+                )}
               </div>
 
               {error && (
@@ -244,24 +291,27 @@ export function DrawArena() {
                 </div>
               )}
 
-              {!canDraw && !error && (
+              {selectedDrawNumber && selectedDraw?.status === 'completed' && (
+                <div className="flex items-center gap-2 p-4 bg-green-500/10 border border-green-500/30 rounded-xl mb-4">
+                  <Trophy className="w-5 h-5 text-green-400 flex-shrink-0" />
+                  <p className="text-green-400 text-sm">This draw has already been completed!</p>
+                </div>
+              )}
+
+              {!selectedDrawNumber && !error && (
                 <div className="flex items-center gap-2 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl mb-4">
                   <AlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0" />
-                  <p className="text-yellow-400 text-sm">
-                    {completedDraws >= 3
-                      ? 'All prizes have been awarded!'
-                      : 'Draw in progress...'}
-                  </p>
+                  <p className="text-yellow-400 text-sm">Please select a draw from above</p>
                 </div>
               )}
 
               <motion.button
                 onClick={handleDraw}
-                disabled={!canDraw || isSpinning}
-                whileHover={canDraw && !isSpinning ? { scale: 1.02 } : {}}
-                whileTap={canDraw && !isSpinning ? { scale: 0.98 } : {}}
+                disabled={!canStartDraw}
+                whileHover={canStartDraw ? { scale: 1.02 } : {}}
+                whileTap={canStartDraw ? { scale: 0.98 } : {}}
                 className={`w-full py-4 rounded-xl font-semibold text-lg transition-all ${
-                  canDraw && !isSpinning
+                  canStartDraw
                     ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50'
                     : 'bg-gray-800 text-gray-500 cursor-not-allowed'
                 }`}
@@ -363,7 +413,7 @@ export function DrawArena() {
                       whileTap={{ scale: 0.98 }}
                       className="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-all"
                     >
-                      Draw Again
+                      Continue
                     </motion.button>
                   </motion.div>
                 ) : (
@@ -376,7 +426,7 @@ export function DrawArena() {
                   >
                     <Sparkles className="w-16 h-16 text-gray-600 mb-4" />
                     <p className="text-gray-500 text-lg">
-                      {isSpinning ? 'Selecting a winner...' : 'Click "Start Draw" to begin'}
+                      {isSpinning ? 'Selecting a winner...' : selectedDrawNumber ? 'Click "Start Draw" to begin' : 'Select a draw above'}
                     </p>
                   </motion.div>
                 )}

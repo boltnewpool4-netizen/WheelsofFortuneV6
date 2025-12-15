@@ -1,44 +1,74 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Users, Trophy, Sparkles, TrendingUp } from 'lucide-react';
-import { useLocalStorage } from '../hooks/useLocalStorage';
-import { Contestant, Winner } from '../types';
+import { Users, Trophy, Sparkles } from 'lucide-react';
+import { ContestData, DrawResult } from '../types';
 
 export function Dashboard() {
-  const [contestants] = useLocalStorage<Contestant[]>('contestants', []);
-  const [winners] = useLocalStorage<Winner[]>('winners', []);
+  const [contestData, setContestData] = useState<ContestData | null>(null);
+  const [drawResults, setDrawResults] = useState<DrawResult[]>([]);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const response = await fetch('/contest-data.json');
+      const data: ContestData = await response.json();
+      setContestData(data);
+
+      const storedResults = localStorage.getItem('wheels_draw_results');
+      if (storedResults) {
+        setDrawResults(JSON.parse(storedResults));
+      }
+    } catch (error) {
+      console.error('Failed to load data:', error);
+    }
+  };
+
+  const totalContestants = contestData?.contestants.length || 0;
+  const completedWinners = drawResults.filter(d => d.status === 'completed');
+  const totalWinners = completedWinners.length;
+  const remainingPrizes = Math.max(0, 3 - totalWinners);
 
   const stats = [
     {
       label: 'Total Contestants',
-      value: contestants.length,
+      value: totalContestants,
       icon: Users,
       color: 'from-cyan-500 to-blue-500',
       bgColor: 'from-cyan-500/20 to-blue-500/20',
     },
     {
       label: 'Total Winners',
-      value: winners.length,
+      value: totalWinners,
       icon: Trophy,
       color: 'from-yellow-500 to-orange-500',
       bgColor: 'from-yellow-500/20 to-orange-500/20',
     },
     {
       label: 'Remaining Prizes',
-      value: Math.max(0, 3 - winners.length),
+      value: remainingPrizes,
       icon: Sparkles,
       color: 'from-green-500 to-emerald-500',
       bgColor: 'from-green-500/20 to-emerald-500/20',
     },
-    {
-      label: 'Success Rate',
-      value: contestants.length > 0 ? `${((winners.length / contestants.length) * 100).toFixed(1)}%` : '0%',
-      icon: TrendingUp,
-      color: 'from-pink-500 to-rose-500',
-      bgColor: 'from-pink-500/20 to-rose-500/20',
-    },
   ];
 
-  const recentWinners = winners.slice(-3).reverse();
+  const recentWinners = completedWinners
+    .slice(-3)
+    .reverse()
+    .map(draw => {
+      const contestant = contestData?.contestants.find(c => c.id === draw.winner_id);
+      return {
+        ...draw,
+        contestantName: draw.winner_name || '',
+        department: contestant?.department || '',
+        supervisor: contestant?.supervisor || '',
+      };
+    });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -50,7 +80,7 @@ export function Dashboard() {
         <h2 className="text-3xl font-bold text-white mb-2">Dashboard</h2>
         <p className="text-gray-400 mb-8">Overview of your lucky draw contest</p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {stats.map((stat, index) => {
             const Icon = stat.icon;
             return (
@@ -66,7 +96,7 @@ export function Dashboard() {
                 <div className="relative bg-gray-900/50 backdrop-blur-xl p-6 rounded-2xl border border-gray-700/50 shadow-xl">
                   <div className="flex items-center justify-between mb-4">
                     <div className={`p-3 bg-gradient-to-r ${stat.bgColor} rounded-xl`}>
-                      <Icon className={`w-6 h-6 bg-gradient-to-r ${stat.color} bg-clip-text text-transparent`} style={{ WebkitTextFillColor: 'transparent' }} />
+                      <Icon className={`w-6 h-6 text-${stat.color.split(' ')[1].replace('to-', '')}`} />
                     </div>
                   </div>
                   <h3 className="text-2xl font-bold text-white mb-1">{stat.value}</h3>
@@ -101,12 +131,12 @@ export function Dashboard() {
                       className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700/30"
                     >
                       <div>
-                        <p className="text-white font-medium">{winner.name}</p>
-                        <p className="text-gray-400 text-sm">{winner.email}</p>
+                        <p className="text-white font-medium">{winner.contestantName}</p>
+                        <p className="text-gray-400 text-sm">{winner.department} - {winner.supervisor}</p>
                       </div>
                       <div className="text-right">
                         <p className="text-cyan-400 font-semibold text-sm">{winner.prize}</p>
-                        <p className="text-gray-500 text-xs">{new Date(winner.wonAt).toLocaleDateString()}</p>
+                        <p className="text-gray-500 text-xs">{winner.drawn_at ? new Date(winner.drawn_at).toLocaleDateString() : ''}</p>
                       </div>
                     </motion.div>
                   ))}
@@ -136,12 +166,12 @@ export function Dashboard() {
                 <div>
                   <div className="flex justify-between text-sm mb-2">
                     <span className="text-gray-400">Progress</span>
-                    <span className="text-white font-medium">{winners.length} / 3 prizes awarded</span>
+                    <span className="text-white font-medium">{totalWinners} / 3 prizes awarded</span>
                   </div>
                   <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
                     <motion.div
                       initial={{ width: 0 }}
-                      animate={{ width: `${(winners.length / 3) * 100}%` }}
+                      animate={{ width: `${(totalWinners / 3) * 100}%` }}
                       transition={{ delay: 0.8, duration: 1 }}
                       className="h-full bg-gradient-to-r from-cyan-500 to-blue-500"
                     ></motion.div>
@@ -152,31 +182,31 @@ export function Dashboard() {
                   <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-cyan-500/20">
                     <span className="text-gray-300">Pulsar NS 125 (1)</span>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      winners.filter(w => w.prize === 'Pulsar NS 125').length > 0
+                      completedWinners.filter(w => w.prize === 'Pulsar NS 125').length > 0
                         ? 'bg-green-500/20 text-green-400'
                         : 'bg-gray-700 text-gray-400'
                     }`}>
-                      {winners.filter(w => w.prize === 'Pulsar NS 125').length > 0 ? 'Awarded' : 'Available'}
+                      {completedWinners.filter(w => w.prize === 'Pulsar NS 125').length > 0 ? 'Awarded' : 'Available'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-cyan-500/20">
                     <span className="text-gray-300">Pulsar NS 125 (2)</span>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      winners.filter(w => w.prize === 'Pulsar NS 125').length > 1
+                      completedWinners.filter(w => w.prize === 'Pulsar NS 125').length > 1
                         ? 'bg-green-500/20 text-green-400'
                         : 'bg-gray-700 text-gray-400'
                     }`}>
-                      {winners.filter(w => w.prize === 'Pulsar NS 125').length > 1 ? 'Awarded' : 'Available'}
+                      {completedWinners.filter(w => w.prize === 'Pulsar NS 125').length > 1 ? 'Awarded' : 'Available'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-blue-500/20">
                     <span className="text-gray-300">TVS Jupiter</span>
                     <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      winners.filter(w => w.prize === 'TVS Jupiter').length > 0
+                      completedWinners.filter(w => w.prize === 'TVS Jupiter').length > 0
                         ? 'bg-green-500/20 text-green-400'
                         : 'bg-gray-700 text-gray-400'
                     }`}>
-                      {winners.filter(w => w.prize === 'TVS Jupiter').length > 0 ? 'Awarded' : 'Available'}
+                      {completedWinners.filter(w => w.prize === 'TVS Jupiter').length > 0 ? 'Awarded' : 'Available'}
                     </span>
                   </div>
                 </div>
